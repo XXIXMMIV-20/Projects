@@ -1,6 +1,21 @@
-
+# Virtual Environment
+venv/
+.venv/
 **/venv/
 **/.venv/
-**/__pycache__/
-**/.env
-**/uploads/
+
+# Environment Variables & Secrets (NEVER push passwords to GitHub!)
+.env
+
+# Python Bytecode Cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local Uploaded PDFs & Databases
+uploads/
+*.sqlite3
+
+# IDE Configurations
+.vscode/
+.idea/
