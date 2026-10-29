@@ -10,7 +10,7 @@ class UserResponse(BaseModel):
     id: str
     email: EmailStr
     created_at: datetime
-
+    
     model_config = ConfigDict(from_attributes=True)
 
 class DocumentResponse(BaseModel):
@@ -21,6 +21,16 @@ class DocumentResponse(BaseModel):
     chunk_count: int
     error_message: str | None
     user_id: str
+    created_at: datetime
+    
+    model_config = ConfigDict(from_attributes=True)
+
+class DocumentChunkResponse(BaseModel):
+    id: str
+    document_id: str
+    chunk_index: int
+    content: str
+    char_count: int
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

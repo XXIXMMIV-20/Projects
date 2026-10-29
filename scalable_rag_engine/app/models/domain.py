@@ -1,7 +1,6 @@
 import uuid
 import enum
 from datetime import datetime, timezone
-from xml.dom.minidom import Document
 from sqlalchemy import String, Text, Integer, ForeignKey, DateTime, Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.database import Base
@@ -62,4 +61,33 @@ class Document(Base):
     )
 
     owner: Mapped["User"] = relationship("User", back_populates="documents")
-        
+
+    chunks: Mapped[list["DocumentChunk"]] = relationship(
+        "DocumentChunk", 
+        back_populates="document",
+        cascade="all, delete-orphan"
+    )
+
+class DocumentChunk(Base):
+    __tablename__ = "document_chunks"
+
+    id: Mapped[str] = mapped_column(
+        String(36), 
+        primary_key=True, 
+        default=lambda: str(uuid.uuid4())
+    )
+    document_id: Mapped[str] = mapped_column(
+        String(36), 
+        ForeignKey("documents.id", ondelete="CASCADE"), 
+        index=True,
+        nullable=False
+    )
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    char_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), 
+        default=lambda: datetime.now(timezone.utc), 
+    )
+
+    document: Mapped["Document"] = relationship("Document", back_populates="chunks")
