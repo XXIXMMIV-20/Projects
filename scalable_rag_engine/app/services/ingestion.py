@@ -52,7 +52,7 @@ async def process_document_task(doc_id: str, file_path: Path):
             )
 
             if not file_path.exists():
-                        raise FileNotFoundError(f"Uploaded file not found at {file_path}")
+                raise FileNotFoundError(f"Uploaded file not found at {file_path}")
             
             raw_text = await asyncio.to_thread(extract_text_sync, file_path)
             if not raw_text:
