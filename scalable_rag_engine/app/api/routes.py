@@ -6,6 +6,7 @@ from app.core.database import get_db
 from app.schemas.domain import UserCreate, UserResponse, DocumentResponse, DocumentChunkResponse
 from app.crud import repository
 from app.services.ingestion import process_document_task
+from app.core.security import verify_password
 
 router = APIRouter()
 
@@ -23,6 +24,16 @@ async def register_user(user_in: UserCreate, db: AsyncSession = Depends(get_db))
             detail="A user with this email already exists."
         )
     return await repository.create_user(db, user_in=user_in)
+
+@router.post("/users/login", response_model=UserResponse)
+async def login_user(credentials: UserCreate, db: AsyncSession = Depends(get_db)):
+    user = await repository.get_user_by_email(db, email=credentials.email)
+    if not user or not verify_password(credentials.password, user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password."
+        )
+    return user
 
 @router.post("/users/{user_id}/documents", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
 async def upload_user_document(

@@ -2,6 +2,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.domain import DocumentChunk, User, Document, DocumentStatus
 from app.schemas.domain import UserCreate
+from app.core.security import hash_password
 
 async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
     result = await db.execute(select(User).where(User.email == email))
@@ -14,7 +15,7 @@ async def get_user_by_id(db: AsyncSession, user_id: str) -> User | None:
 async def create_user(db: AsyncSession, user_in: UserCreate) -> User:
     db_user = User(
         email=user_in.email, 
-        hashed_password=f"{user_in.password}_hashed_secure"
+        hashed_password=hash_password(user_in.password)
     )
     db.add(db_user)
     await db.commit()
