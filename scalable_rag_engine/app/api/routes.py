@@ -1,12 +1,17 @@
 import shutil
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, status
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.database import get_db
-from app.schemas.domain import UserCreate, UserResponse, DocumentResponse, DocumentChunkResponse
+from app.core.security import verify_password, create_access_token, decode_access_token
+from app.models.domain import User
+from app.schemas.domain import (
+    UserCreate, UserResponse, TokenResponse, 
+    DocumentResponse, DocumentChunkResponse
+)
 from app.crud import repository
 from app.services.ingestion import process_document_task
-from app.core.security import verify_password
 
 router = APIRouter()
 
@@ -14,6 +19,28 @@ UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md"}
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/token")
+
+async def get_current_user(
+    token: str = Depends(oauth2_scheme), 
+    db: AsyncSession = Depends(get_db)
+) -> User:
+    user_id = decode_access_token(token)
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired authentication token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    user = await repository.get_user_by_id(db, user_id=user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User no longer exists.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user
 
 @router.post("/users", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register_user(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
@@ -25,26 +52,38 @@ async def register_user(user_in: UserCreate, db: AsyncSession = Depends(get_db))
         )
     return await repository.create_user(db, user_in=user_in)
 
-@router.post("/users/login", response_model=UserResponse)
-async def login_user(credentials: UserCreate, db: AsyncSession = Depends(get_db)):
-    user = await repository.get_user_by_email(db, email=credentials.email)
-    if not user or not verify_password(credentials.password, user.hashed_password):
+@router.post("/auth/token", response_model=TokenResponse)
+async def login_for_access_token(
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: AsyncSession = Depends(get_db)
+):
+    user = await repository.get_user_by_email(db, email=form_data.username)
+    if not user or not verify_password(form_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or password."
+            detail="Incorrect email or password.",
+            headers={"WWW-Authenticate": "Bearer"},
         )
-    return user
+    access_token = create_access_token(subject=user.id)
+    return TokenResponse(access_token=access_token)
+
+@router.get("/users/me", response_model=UserResponse)
+async def get_my_profile(current_user: User = Depends(get_current_user)):
+    return current_user
 
 @router.post("/users/{user_id}/documents", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
 async def upload_user_document(
     user_id: str,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    user = await repository.get_user_by_id(db, user_id=user_id)
-    if not user:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    if current_user.id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to upload documents for another user."
+        )
 
     ext = Path(file.filename or "").suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
@@ -74,11 +113,24 @@ async def upload_user_document(
     return doc
 
 @router.get("/users/{user_id}/documents", response_model=list[DocumentResponse])
-async def list_user_documents(user_id: str, db: AsyncSession = Depends(get_db)):
+async def list_user_documents(
+    user_id: str, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    if current_user.id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to view another user's documents."
+        )
     return await repository.get_user_documents(db, user_id=user_id)
 
 @router.get("/documents/{doc_id}/chunks", response_model=list[DocumentChunkResponse])
-async def get_chunks_for_document(doc_id: str, db: AsyncSession = Depends(get_db)):
+async def get_chunks_for_document(
+    doc_id: str, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     return await repository.get_document_chunks(db, doc_id=doc_id)
 
 @router.delete("/documents/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
