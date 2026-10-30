@@ -76,7 +76,16 @@ async def create_document_chunks(
     await db.commit()
     return len(chunk_objects)
 
-async def get_document_chunks(db: AsyncSession, doc_id: str) -> list[DocumentChunk]:
+async def get_document_chunks(
+    db: AsyncSession, 
+    doc_id: str,
+    user_id: str
+) -> list[DocumentChunk] | None:
+    doc_result = await db.execute(
+        select(Document).where(Document.id == doc_id, Document.user_id == user_id)
+    )
+    if not doc_result.scalars().first():
+        return None
     result = await db.execute(
         select(DocumentChunk)
         .where(DocumentChunk.document_id == doc_id)
@@ -84,11 +93,18 @@ async def get_document_chunks(db: AsyncSession, doc_id: str) -> list[DocumentChu
     )
     return list(result.scalars().all())
 
-async def delete_document(db: AsyncSession, doc_id: str) -> bool:
-    result = await db.execute(select(Document).where(Document.id == doc_id))
+async def delete_document(
+    db: AsyncSession, 
+    doc_id: str,
+    user_id: str
+) -> Document | None:
+    result = await db.execute(
+        select(Document).
+        where(Document.id == doc_id, Document.user_id == user_id)
+    )
     doc = result.scalars().first()
     if doc:
         await db.delete(doc)
         await db.commit()
-        return True
+        return doc
     return False

@@ -72,19 +72,12 @@ async def get_my_profile(current_user: User = Depends(get_current_user)):
     return current_user
 
 @router.post("/users/{user_id}/documents", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
-async def upload_user_document(
-    user_id: str,
+async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    if current_user.id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to upload documents for another user."
-        )
-
     ext = Path(file.filename or "").suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
@@ -102,7 +95,7 @@ async def upload_user_document(
         db,
         filename=file.filename or "untitled",
         file_size_bytes=file_size_bytes,
-        user_id=user_id
+        user_id=current_user.id
     )
 
     final_path = UPLOAD_DIR / f"{doc.id}_{file.filename}"
@@ -113,17 +106,11 @@ async def upload_user_document(
     return doc
 
 @router.get("/users/{user_id}/documents", response_model=list[DocumentResponse])
-async def list_user_documents(
-    user_id: str, 
+async def list_my_documents(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    if current_user.id != user_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to view another user's documents."
-        )
-    return await repository.get_user_documents(db, user_id=user_id)
+    return await repository.get_user_documents(db, user_id=current_user.id)
 
 @router.get("/documents/{doc_id}/chunks", response_model=list[DocumentChunkResponse])
 async def get_chunks_for_document(
@@ -131,11 +118,30 @@ async def get_chunks_for_document(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    return await repository.get_document_chunks(db, doc_id=doc_id)
+    chunks = await repository.get_document_chunks(
+        db, doc_id=doc_id, user_id=current_user.id
+    )
+    if chunks is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Document not found or access denied.")
+    return chunks
 
 @router.delete("/documents/{doc_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_document(doc_id: str, db: AsyncSession = Depends(get_db)):
-    success = await repository.delete_document(db, doc_id=doc_id)
-    if not success:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found.")
+async def remove_document(
+    doc_id: str, 
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+    ):
+    deleted_doc = await repository.delete_document(
+        db, doc_id=doc_id, user_id=current_user.id
+    )
+    if not deleted_doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, 
+            detail="Document not found or access denied."
+        )
+    file_path = UPLOAD_DIR / f"{deleted_doc.id}_{deleted_doc.filename}"
+    if file_path.exists():
+        file_path.unlink()
     return None
